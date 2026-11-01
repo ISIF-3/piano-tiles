@@ -166,7 +166,7 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;heigh
       <div class="grid" id="composers"></div>
     </div>
     <div id="results" style="display:none"></div>
-    <div class="foot">음표 데이터: piano-midi.de (Bernd Krueger), ASAP 데이터셋 · 피아노 음색: Salamander Grand Piano<br><button id="aboutBtn">출처와 라이선스 보기</button></div>
+    <div class="foot">음표 데이터: piano-midi.de (Bernd Krueger), ASAP 데이터셋 · 피아노 음색: Salamander Grand Piano<br><button id="aboutBtn">출처와 라이선스 보기</button><br><span style="opacity:.6">버전 2 · 탭해야 진행되는 게임 모드</span></div>
   </div>
 </section>
 
@@ -590,8 +590,6 @@ const Game = {
     // row & lane grid
     ctx.strokeStyle='rgba(23,21,26,.12)'; ctx.lineWidth=1;
     for(let i=1;i<4;i++){ const x=Math.round(i*G.laneW)+.5; ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,G.h); ctx.stroke(); }
-    const off=((this.scroll%1)+1)%1;
-    for(let j=-1;j<=this.cfg.rows+1;j++){ const y=Math.round(G.base-(j-off)*G.rowH)+.5; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(G.w,y); ctx.stroke(); }
     const now=performance.now();
     if(this.flash && now-this.flash<350){ ctx.fillStyle=`rgba(226,101,91,${0.5*(1-(now-this.flash)/350)})`; ctx.fillRect(this.flashLane*G.laneW,0,G.laneW,G.h); }
     if(!this.tiles.length){ ctx.fillStyle='#6f6872'; ctx.font='15px -apple-system,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('불러오는 중…',G.w/2,G.h/2); return; }
@@ -599,8 +597,7 @@ const Game = {
     for(let k=from;k<this.tiles.length;k++){ const t=this.tiles[k]; const r=this.tileRect(k,G); if(r.y+r.h<0) break; if(r.y>G.h) continue;
       if(t.done){ const a=Math.max(0,1-(now-t.at)/300); if(a<=0) continue; ctx.globalAlpha=a; ctx.fillStyle='#d9a95b'; ctx.fillRect(r.x,r.y,r.w,r.h); ctx.globalAlpha=1; continue; }
       const gr=ctx.createLinearGradient(0,r.y,0,r.y+r.h); gr.addColorStop(0,'#2c2830'); gr.addColorStop(1,'#121014');
-      ctx.fillStyle=gr; ctx.fillRect(r.x,r.y,r.w,r.h);
-      ctx.fillStyle='rgba(255,255,255,.06)'; ctx.fillRect(r.x,r.y,r.w,1);
+      ctx.fillStyle=gr; ctx.fillRect(r.x,r.y-0.5,r.w,r.h+1);
       if(k===this.first && !this.started){ ctx.fillStyle='#f0cf8f'; ctx.font='700 18px -apple-system,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('시작',r.x+r.w/2,r.y+r.h/2); }
     }
     for(const rp of this.ripples){ const a=(now-rp.at)/380; if(a>1) continue; ctx.strokeStyle=`rgba(217,169,91,${1-a})`; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(rp.x,rp.y,12+a*46,0,Math.PI*2); ctx.stroke(); }
