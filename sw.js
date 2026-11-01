@@ -1,5 +1,5 @@
 /* 오프라인 실행용 서비스 워커: 앱 파일과 피아노 소리를 저장해 두고, 곡 데이터는 처음 받을 때 저장 */
-const VERSION = 'piano-v2';
+const VERSION = 'piano-v3';
 const NOTES = ['A0'];
 for (let o = 1; o <= 7; o++) for (const n of ['C', 'Ds', 'Fs', 'A']) NOTES.push(n + o);
 NOTES.push('C8');
@@ -20,6 +20,22 @@ self.addEventListener('activate', e => {
 self.addEventListener('fetch', e => {
   const req = e.request;
   if (req.method !== 'GET' || new URL(req.url).origin !== location.origin) return;
+  const url = new URL(req.url);
+  const fresh = req.mode === 'navigate' || /\/(index\.html|catalog\.json|manifest\.webmanifest)?$/.test(url.pathname);
+  if (fresh) {
+    // 화면 파일은 인터넷이 되면 항상 최신 버전을 받고, 안 되면 저장본 사용
+    e.respondWith((async () => {
+      const cache = await caches.open(VERSION);
+      try {
+        const res = await fetch(req, { cache: 'no-store' });
+        if (res.ok) cache.put(req.mode === 'navigate' ? './index.html' : req, res.clone());
+        return res;
+      } catch (err) {
+        return (await cache.match(req.mode === 'navigate' ? './index.html' : req, { ignoreSearch: true })) || Response.error();
+      }
+    })());
+    return;
+  }
   e.respondWith((async () => {
     const cache = await caches.open(VERSION);
     const hit = await cache.match(req, { ignoreSearch: true });
