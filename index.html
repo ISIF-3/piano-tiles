@@ -250,11 +250,11 @@ input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;heigh
   <div class="sub" id="sSub"></div>
   <button class="choice primary" id="sGame">
     <div class="ic"><svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><rect x="3" y="3" width="5" height="8" rx="1.2"/><rect x="10" y="10" width="5" height="8" rx="1.2"/><rect x="17" y="5" width="4" height="8" rx="1.2"/></svg></div>
-    <div><b>게임으로 연주하기</b><small>내려오는 타일을 눌러야 음악이 이어져요</small></div>
+    <div><b>게임으로 연주하기</b><small>타일을 누를 때마다 다음 소절이 연주돼요</small></div>
   </button>
   <div class="opts"><label>난이도</label><div class="seg" id="segDiff"><button data-v="0">쉬움</button><button data-v="1">보통</button><button data-v="2">어려움</button></div></div>
-  <div class="opts"><label>속도</label><div class="seg" id="segSpeed"><button data-v="0.6">0.6×</button><button data-v="0.8">0.8×</button><button data-v="1">1.0×</button><button data-v="1.2">1.2×</button></div></div>
-  <button class="toggle" id="relaxT"><span>편하게 하기 (놓쳐도 게임 오버 없음)</span><span class="sw" id="relaxSw"></span></button>
+  <div class="opts"><label>템포</label><div class="seg" id="segSpeed"><button data-v="0.6">0.6×</button><button data-v="0.8">0.8×</button><button data-v="1">1.0×</button><button data-v="1.2">1.2×</button></div></div>
+  <button class="toggle" id="relaxT"><span>편하게 하기 (틀려도 게임 오버 없음)</span><span class="sw" id="relaxSw"></span></button>
   <button class="choice" id="sListen">
     <div class="ic"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg></div>
     <div><b>처음부터 끝까지 감상하기</b><small>자동으로 연주돼요</small></div>
@@ -532,8 +532,8 @@ $('#pToGame').onclick=()=>{ const pc=Player.piece, q=Player.queue; Player.stop()
 /* ---------------- game mode ---------------- */
 const DIFF=[{gap:0.5,rows:4,name:'쉬움'},{gap:0.32,rows:4,name:'보통'},{gap:0.21,rows:5,name:'어려움'}];
 const Game = {
-  piece:null, queue:[], song:null, tiles:[], first:0, songTime:0, running:false, started:false, paused:false,
-  score:0, lives:3, missed:0, last:0, raf:0, flash:0, ripples:[], token:0, cfg:null,
+  piece:null, queue:[], song:null, tiles:[], first:0, scroll:0, started:false, over:false,
+  score:0, lives:3, mistakes:0, last:0, raf:0, flash:0, ripples:[], token:0, cfg:null, running:false, paused:false,
   async start(pc, queue){
     this.quit(); this.piece=pc; this.queue=queue||[pc]; this.cfg=DIFF[settings.diff];
     if(stack[stack.length-1]!=='game') go('game');
@@ -544,81 +544,74 @@ const Game = {
     if(tk!==this.token) return;
     this.tiles=buildTiles(this.song, this.cfg.gap); this.reset();
   },
-  reset(){ this.first=0; this.running=false; this.started=false; this.paused=false; this.score=0; this.lives=3; this.missed=0; this.ripples=[]; this.flash=0;
-    for(const t of this.tiles){ t.done=false; t.miss=false; t.at=0; }
-    this.songTime = this.tiles.length ? this.tiles[0].t : 0; this.hud(); },
+  reset(){ this.first=0; this.scroll=0; this.started=false; this.over=false; this.running=false; this.paused=false;
+    this.score=0; this.lives=3; this.mistakes=0; this.ripples=[]; this.flash=0;
+    for(const t of this.tiles){ t.done=false; t.at=0; } this.hud(); },
   quit(){ this.token++; this.running=false; cancelAnimationFrame(this.raf); Audio.stopAll(); },
   hud(){ $('#gScore').textContent=this.score; $('#gLives').textContent = settings.relax ? '' : '♥'.repeat(Math.max(0,this.lives)) + '♡'.repeat(Math.max(0,3-this.lives));
     $('#gProg').style.width = (this.tiles.length? (this.first/this.tiles.length*100):0)+'%'; },
   geom(){ const cv=$('#gcanvas'); const g=fitCanvas(cv); const rowH=g.h/this.cfg.rows; const laneW=g.w/4;
-    return {...g, rowH, laneW, tileH:rowH-2, pps:rowH/this.cfg.gap, base:g.h - rowH*0.25}; },
-  tileRect(t,G){ const bottom=G.base+(this.songTime-t.t)*G.pps; return {x:t.lane*G.laneW, y:bottom-G.tileH, w:G.laneW, h:G.tileH}; },
+    return {...g, rowH, laneW, base:g.h - rowH*0.12}; },
+  // tiles sit in back-to-back rows: the tile to play is always in the bottom row
+  tileRect(k,G){ const bottom=G.base-(k-this.scroll)*G.rowH; return {x:this.tiles[k].lane*G.laneW, y:bottom-G.rowH, w:G.laneW, h:G.rowH}; },
   playTile(t){ const c=Audio.ctx, s=this.song, sp=settings.speed, now=c.currentTime+0.01;
     for(const i of t.notes){ Audio.play(s.p[i], s.v[i], now+(s.t[i]-t.t)/sp, Math.max(0.12, s.d[i]/sp)); } },
   tap(x,y){
-    if(!this.tiles.length||this.paused||$('#gOver').classList.contains('on')) return;
+    if(!this.tiles.length||this.over||$('#gOver').classList.contains('on')) return;
     const G=this.geom(); const lane=Math.max(0,Math.min(3,Math.floor(x/G.laneW)));
     const t=this.tiles[this.first]; if(!t) return;
-    const r=this.tileRect(t,G); const padTop=G.tileH*0.35, padBot=G.rowH*0.6;
-    if(lane===t.lane && y>=r.y-padTop && y<=r.y+r.h+padBot && r.y+r.h>0){
-      if(!this.started){ this.started=true; this.running=true; this.last=performance.now(); }
+    const r=this.tileRect(this.first,G);
+    if(lane===t.lane && y>=r.y-G.rowH*0.5){
+      this.started=true; this.running=true;
       t.done=true; t.at=performance.now(); this.first++; this.score++; this.playTile(t);
-      this.ripples.push({x,y,at:performance.now()}); this.hud(); return;
+      this.ripples.push({x,y,at:performance.now()}); this.hud();
+      if(this.first>=this.tiles.length) this.end(true);
+      return;
     }
-    if(!this.started) return;
-    // tapped some other visible tile? ignore. Empty spot -> mistake
-    for(let k=this.first+1;k<Math.min(this.tiles.length,this.first+8);k++){ const o=this.tiles[k]; if(o.lane!==lane) continue; const rr2=this.tileRect(o,G); if(y>=rr2.y-padTop&&y<=rr2.y+rr2.h+padBot) return; }
-    this.mistake(lane, y);
+    if(lane!==t.lane && y>=r.y-G.rowH*0.5) this.mistake(lane);
   },
-  mistake(lane,y){ this.flash=performance.now(); this.flashLane=lane; this.flashY=y;
-    if(settings.relax) return; this.lives--; this.hud(); if(this.lives<=0) this.end(false); },
-  update(dt){
-    if(!this.running||this.paused) return;
-    this.songTime += dt*settings.speed;
-    const G=this.geom();
-    while(this.first<this.tiles.length){ const t=this.tiles[this.first]; const r=this.tileRect(t,G);
-      if(r.y > G.h - G.tileH*0.15){ // passed bottom
-        if(settings.relax){ t.done=true; t.auto=true; t.at=performance.now(); this.playTile(t); }
-        else { t.miss=true; this.missed++; this.lives--; this.flash=performance.now(); this.flashLane=t.lane; this.flashY=G.h-20; this.hud(); if(this.lives<=0){ this.first++; this.end(false); return; } }
-        this.first++; this.hud();
-      } else break; }
-    if(this.first>=this.tiles.length && this.tiles.length){ const lastT=this.tiles[this.tiles.length-1]; if(this.songTime>lastT.t+lastT.span+0.8) this.end(true); }
-  },
-  end(win){ this.running=false; const total=this.tiles.length; const acc = total? this.score/total : 0;
+  mistake(lane){ this.flash=performance.now(); this.flashLane=lane; this.mistakes++;
+    if(!this.started || settings.relax) return; this.lives--; this.hud(); if(this.lives<=0) this.end(false); },
+  update(dt){ const d=this.first-this.scroll; this.scroll += Math.abs(d)<0.002 ? d : d*Math.min(1,dt*16); },
+  end(win){ this.over=true; this.running=false; const total=this.tiles.length;
     $('#oTitle').textContent = win ? '완주했어요!' : '게임 오버';
     $('#oScore').textContent = this.score;
-    const stars = win ? (acc>=0.98?3:acc>=0.85?2:1) : 0; $('#oStars').textContent = win ? '★'.repeat(stars)+'☆'.repeat(3-stars) : '';
-    $('#oMsg').textContent = `${this.piece.t}\n${this.cfg.name} · ${settings.speed.toFixed(1)}×\n` + (win? `${total}개 중 ${this.score}개를 직접 연주했어요` : `${total}개 타일 중 ${this.first}번째에서 멈췄어요`);
+    const stars = win ? (this.mistakes===0?3:this.mistakes<=3?2:1) : 0; $('#oStars').textContent = win ? '★'.repeat(stars)+'☆'.repeat(3-stars) : '';
+    $('#oMsg').textContent = `${this.piece.t}\n${this.cfg.name}\n` + (win? (this.mistakes? `실수 ${this.mistakes}번으로 끝까지 연주했어요` : '실수 없이 끝까지 연주했어요') : `${total}개 타일 중 ${this.first}번째에서 멈췄어요`);
     $('#oRetryLabel').textContent = win ? '다시 하기' : '다시 도전';
     const best=store.get('best_'+this.piece.id+'_'+settings.diff,0); if(this.score>best) store.set('best_'+this.piece.id+'_'+settings.diff,this.score);
-    setTimeout(()=>$('#gOver').classList.add('on'), win?600:350); },
+    setTimeout(()=>$('#gOver').classList.add('on'), win?1200:350); },
   loop(){ cancelAnimationFrame(this.raf); this.last=performance.now();
     const f=(ts)=>{ const dt=Math.min(0.05,(ts-this.last)/1000); this.last=ts; this.update(dt); this.draw(); if(stack[stack.length-1]==='game') this.raf=requestAnimationFrame(f); };
     this.raf=requestAnimationFrame(f); },
   draw(){
     const cv=$('#gcanvas'); if(!this.cfg) return; const G=this.geom(); const ctx=cv.getContext('2d'); ctx.setTransform(G.dpr,0,0,G.dpr,0,0);
     ctx.fillStyle='#f5f0e6'; ctx.fillRect(0,0,G.w,G.h);
+    // row & lane grid
     ctx.strokeStyle='rgba(23,21,26,.12)'; ctx.lineWidth=1;
     for(let i=1;i<4;i++){ const x=Math.round(i*G.laneW)+.5; ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,G.h); ctx.stroke(); }
+    const off=((this.scroll%1)+1)%1;
+    for(let j=-1;j<=this.cfg.rows+1;j++){ const y=Math.round(G.base-(j-off)*G.rowH)+.5; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(G.w,y); ctx.stroke(); }
     const now=performance.now();
-    if(this.flash && now-this.flash<350){ ctx.fillStyle=`rgba(226,101,91,${0.45*(1-(now-this.flash)/350)})`; ctx.fillRect(this.flashLane*G.laneW,0,G.laneW,G.h); }
-    if(!this.tiles.length){ ctx.fillStyle='#6f6872'; ctx.font='15px -apple-system,sans-serif'; ctx.textAlign='center'; ctx.fillText('불러오는 중…',G.w/2,G.h/2); return; }
-    const from=Math.max(0,this.first-6);
-    for(let k=from;k<this.tiles.length;k++){ const t=this.tiles[k]; const r=this.tileRect(t,G); if(r.y+r.h<-2) break; if(r.y>G.h) continue;
-      const x=r.x+3, w=r.w-6;
-      if(t.done){ const a=Math.max(0,1-(now-t.at)/260); if(a<=0) continue; ctx.globalAlpha=a; ctx.fillStyle = t.auto ? '#bdb5a9' : '#d9a95b'; rr(ctx,x,r.y+2,w,r.h-4,10); ctx.fill(); ctx.globalAlpha=1; continue; }
-      if(t.miss){ ctx.fillStyle='#e2655b'; rr(ctx,x,r.y+2,w,r.h-4,10); ctx.fill(); continue; }
-      const gr=ctx.createLinearGradient(0,r.y,0,r.y+r.h); gr.addColorStop(0,'#2a262e'); gr.addColorStop(1,'#121014');
-      ctx.fillStyle=gr; rr(ctx,x,r.y+2,w,r.h-4,10); ctx.fill();
-      if(k===this.first && !this.started){ ctx.fillStyle='#f0cf8f'; ctx.font='700 18px -apple-system,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('시작',x+w/2,r.y+r.h/2); }
+    if(this.flash && now-this.flash<350){ ctx.fillStyle=`rgba(226,101,91,${0.5*(1-(now-this.flash)/350)})`; ctx.fillRect(this.flashLane*G.laneW,0,G.laneW,G.h); }
+    if(!this.tiles.length){ ctx.fillStyle='#6f6872'; ctx.font='15px -apple-system,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('불러오는 중…',G.w/2,G.h/2); return; }
+    const from=Math.max(0,this.first-2);
+    for(let k=from;k<this.tiles.length;k++){ const t=this.tiles[k]; const r=this.tileRect(k,G); if(r.y+r.h<0) break; if(r.y>G.h) continue;
+      if(t.done){ const a=Math.max(0,1-(now-t.at)/300); if(a<=0) continue; ctx.globalAlpha=a; ctx.fillStyle='#d9a95b'; ctx.fillRect(r.x,r.y,r.w,r.h); ctx.globalAlpha=1; continue; }
+      const gr=ctx.createLinearGradient(0,r.y,0,r.y+r.h); gr.addColorStop(0,'#2c2830'); gr.addColorStop(1,'#121014');
+      ctx.fillStyle=gr; ctx.fillRect(r.x,r.y,r.w,r.h);
+      ctx.fillStyle='rgba(255,255,255,.06)'; ctx.fillRect(r.x,r.y,r.w,1);
+      if(k===this.first && !this.started){ ctx.fillStyle='#f0cf8f'; ctx.font='700 18px -apple-system,sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('시작',r.x+r.w/2,r.y+r.h/2); }
     }
     for(const rp of this.ripples){ const a=(now-rp.at)/380; if(a>1) continue; ctx.strokeStyle=`rgba(217,169,91,${1-a})`; ctx.lineWidth=3; ctx.beginPath(); ctx.arc(rp.x,rp.y,12+a*46,0,Math.PI*2); ctx.stroke(); }
     this.ripples=this.ripples.filter(rp=>now-rp.at<380);
-    if(!this.started){ const y=Math.max(110, G.h*0.16); ctx.font='600 14px -apple-system,sans-serif'; const title=this.piece?this.piece.t:'';
-      ctx.font='13px -apple-system,sans-serif'; const tw=Math.min(G.w-40, Math.max(ctx.measureText(title).width, 190)+36);
-      ctx.fillStyle='rgba(23,21,26,.86)'; rr(ctx,(G.w-tw)/2,y-24,tw,58,16); ctx.fill();
+    if(!this.started){ const y=Math.max(110, G.h*0.16); const title=this.piece?this.piece.t:'';
+      const hint='검은 타일을 누를 때마다 음악이 이어져요';
+      ctx.font='13px -apple-system,sans-serif'; const w1=ctx.measureText(title).width; ctx.font='600 14px -apple-system,sans-serif'; const w2=ctx.measureText(hint).width;
+      const tw=Math.min(G.w-24, Math.max(w1,w2)+40);
+      ctx.fillStyle='rgba(23,21,26,.88)'; rr(ctx,(G.w-tw)/2,y-24,tw,58,16); ctx.fill();
       ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillStyle='#f0cf8f'; ctx.font='600 14px -apple-system,sans-serif';
-      ctx.fillText('맨 아래 검은 타일을 눌러 시작', G.w/2, y-5); ctx.fillStyle='rgba(243,237,227,.7)'; ctx.font='12px -apple-system,sans-serif';
+      ctx.fillText(hint, G.w/2, y-5); ctx.fillStyle='rgba(243,237,227,.7)'; ctx.font='12px -apple-system,sans-serif';
       ctx.fillText(title.length>30?title.slice(0,29)+'…':title, G.w/2, y+16); }
   }
 };
@@ -645,14 +638,14 @@ function buildTiles(s, gap){
 (()=>{ const cv=$('#gcanvas');
   cv.addEventListener('pointerdown', e=>{ e.preventDefault(); Audio.unlock(); const r=cv.getBoundingClientRect(); Game.tap(e.clientX-r.left, e.clientY-r.top); }, {passive:false});
   cv.addEventListener('touchstart', e=>e.preventDefault(), {passive:false}); })();
-$('#gPause').onclick=()=>{ if(!Game.started||!Game.running){ back(); return; } Game.paused=true;
+$('#gPause').onclick=()=>{ if(!Game.started||Game.over){ back(); return; } Game.paused=true;
   $('#oTitle').textContent='일시정지'; $('#oStars').textContent=''; $('#oScore').textContent=Game.score; $('#oMsg').textContent=Game.piece.t;
   $('#oRetryLabel').textContent='계속하기'; $('#gOver').classList.add('on'); };
 $('#oRetry').onclick=()=>{ Audio.unlock(); $('#gOver').classList.remove('on');
-  if(Game.paused && Game.running){ Game.paused=false; return; } Game.reset(); };
+  if(Game.paused && !Game.over){ Game.paused=false; return; } Game.reset(); };
 $('#oListen').onclick=()=>{ const pc=Game.piece, q=Game.queue; Game.quit(); $('#gOver').classList.remove('on'); stack.pop(); Player.open(pc,q); };
 $('#oExit').onclick=()=>{ $('#gOver').classList.remove('on'); back(); };
-document.addEventListener('visibilitychange',()=>{ if(document.hidden){ if(Game.running && !Game.paused) $('#gPause').onclick(); if(Player.playing) Player.pause(); } });
+document.addEventListener('visibilitychange',()=>{ if(document.hidden){ if(Player.playing) Player.pause(); } });
 
 /* ---------------- boot ---------------- */
 fetch('catalog.json').then(r=>r.json()).then(c=>{ CAT=c; c.pieces.forEach(p=>byId.set(p.id,p)); c.composers.forEach(x=>compMap.set(x.k,x)); renderHome(); setupOffline(); })
