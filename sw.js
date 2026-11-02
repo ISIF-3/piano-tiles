@@ -1,5 +1,5 @@
 /* 오프라인 실행용 서비스 워커: 앱 파일과 피아노 소리를 저장해 두고, 곡 데이터는 처음 받을 때 저장 */
-const VERSION = 'piano-v4';
+const VERSION = 'piano-v5';
 const NOTES = ['A0'];
 for (let o = 1; o <= 7; o++) for (const n of ['C', 'Ds', 'Fs', 'A']) NOTES.push(n + o);
 NOTES.push('C8');
